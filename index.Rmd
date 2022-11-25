@@ -17,3 +17,213 @@ knitr::opts_chunk$set(echo = FALSE)
 ```
 
 Hi everyone This is my Website. Welcome. My name is Arbnor.
+
+
+# CNN sentiments
+
+So here we go. Me and my team want to check if we can see the evolution of Corona in the sentiments of the Newspapers titles. So we will use CNN headlines and perform a sentiment analysis on it. Then we have some graphes wich you can see on the following website: 
+
+
+```{r}
+library(tidyr)
+library(tidyverse)
+library(tidytext)
+library(readr)
+library(stringr)
+library(RColorBrewer)
+library(dplyr)
+
+```
+
+
+then we download the dataset:
+
+```{r}
+cnn <- read_csv("/Users/arbnornokaj/Documents/NLP_2021Autumn/Project/CNN_Articels_clean.csv")
+```
+Now download ABC-News Data:
+```{r}
+abc <- read.csv("/Users/arbnornokaj/Documents/NLP_2021Autumn/abcnews-date-text.csv")
+```
+
+
+Now dowload covid deaths data:
+
+```{r}
+library(readxl)
+
+covid_data = read_excel("/Users/arbnornokaj/Documents/NLP_2021Autumn/owid-covid-data.xlsx")
+
+covid_deaths = covid_data %>% select(date, location, new_deaths, new_deaths_smoothed, new_deaths_per_million, new_deaths_smoothed_per_million)
+
+aus_deaths = covid_deaths %>% filter(location == "Australia")
+
+usa_deaths = covid_deaths %>% filter(location == "United States")
+
+
+
+#whole procedure for australia:
+aus_deaths$Date = as.Date(as.character(aus_deaths$date))
+aus_deaths$week = as.Date(cut(aus_deaths$Date, breaks = "week"))
+
+aus_deaths = aus_deaths %>% select(week, location, new_deaths, new_deaths_smoothed, new_deaths_per_million, new_deaths_smoothed_per_million)
+
+aus_deaths = aus_deaths %>% group_by(week) %>% mutate(mean_deaths = mean(new_deaths_per_million))
+
+
+aus_deaths = aus_deaths[!duplicated(aus_deaths$week), ]
+
+#whole procedure for the US:
+usa_deaths$Date = as.Date(as.character(usa_deaths$date))
+usa_deaths$week = as.Date(cut(usa_deaths$Date, breaks = "week"))
+
+usa_deaths = usa_deaths %>% select(week, location, new_deaths, new_deaths_smoothed, new_deaths_per_million, new_deaths_smoothed_per_million)
+
+usa_deaths = usa_deaths %>% group_by(week) %>% mutate(mean_deaths = mean(new_deaths_per_million))
+
+
+usa_deaths = usa_deaths[!duplicated(usa_deaths$week), ]
+
+
+usa = usa_deaths %>% ggplot(mapping = aes(x = week, y = mean_deaths)) +
+  geom_point() +
+  geom_line(color = "green") +
+  ylab(label = "average deahts per million") +
+   scale_x_date(limits = as.Date(c("2021-01-01", "2022-01-01"))) +
+  theme_bw() +
+  ggtitle("US Covid deaths 2021") +
+  ylim(0,10)
+
+aus = aus_deaths %>% ggplot(mapping = aes(x = week, y = mean_deaths)) +
+  geom_point() +
+  geom_line(color = "grey") +
+  ylab(label = "average deahts per million") +
+   scale_x_date(limits = as.Date(c("2021-01-01", "2022-01-01"))) +
+  theme_bw() +
+  ggtitle("Australia Covid deaths 2021") +
+  ylim(0,10)
+
+
+
+```
+
+
+
+
+Now we only want the following variables: Date published, Category, Headline
+
+```{r}
+cnn <- cnn %>% select(`Date published`, Category, Headline)
+```
+
+
+
+So what we want next split the dataset. Before and after January 1st 2020 up to March 15th 2022 because there we can see all the evolution of the pandemic.
+
+To do that I would change the Date published variable that contains also time indication in hours, minutes and seconds to Date that only contains days month and year.
+
+```{r}
+cnn <- cnn %>% mutate(Date = as.Date(`Date published`))
+
+
+cnn <- cnn %>% select(Date, Category, Headline)
+
+
+cnn <- cnn %>% filter(Date >= "2020-01-01")  #during the pandemic
+
+
+```
+Now we change our data set per week:
+
+```{r}
+cnn$week = as.Date(cut(cnn$Date, breaks = "week"))
+
+cnn = cnn %>% select(week, Headline)
+```
+
+
+Now we want to do a similar process with the abc data set:
+
+```{r}
+# first we have to change the number to date format:
+abc$publish_date = as.Date(as.character(abc$publish_date), format = "%Y%m%d")
+
+abc$week = as.Date(cut(abc$publish_date, breaks = "week"))
+
+abc = abc %>% select(week, headline_text)
+```
+
+
+
+
+
+
+Now we want to tokenize the headlines:
+
+
+```{r}
+regex <- "[:alpha:]+"
+# variable "word" must be set as the output. why? because of the later used command inner_join(). In order to combine two datasets inner_join() needs the same column in both datasets. In afinn the column where the words are listed is called "word". So we set the same name in our dataset.
+cnn_tokens<- cnn %>% unnest_tokens(output = word, input = Headline, token = "regex")
+
+abc_tokens <- abc %>% unnest_tokens(output = word, input = headline_text, token = "regex")
+```
+
+Now perform afinn on our dataset:
+
+```{r}
+afinn <- get_sentiments("afinn")
+library(textdata)
+cnn_sentiments <- cnn_tokens %>% inner_join(afinn)
+
+abc_sentiments <- abc_tokens %>% inner_join(afinn)
+```
+
+
+
+
+Now we want to plot the results:
+
+```{r}
+
+#calculate mean for every week
+cnn_1 <- cnn_sentiments %>% group_by(week) %>% mutate(value_mean = mean(value)) %>% select(week, value_mean)
+
+#remove duplicates
+cnn_1 = cnn_1[!duplicated(cnn_1$week), ]
+
+#calculate mean for every week
+abc_1 <- abc_sentiments %>% group_by(week) %>% mutate(value_mean = mean(value)) %>% select(week, value_mean)
+
+abc_1 = abc_1[!duplicated(abc_1$week), ]
+```
+
+
+now we plot those two timeframes:
+
+```{r}
+
+
+cnnplot = cnn_1 %>% ggplot(mapping = aes(x = week, y = value_mean)) +
+  geom_point() +
+  geom_line(color = "skyblue") +
+  ylab(label = "Sentiment") +
+   scale_x_date(limits = as.Date(c("2021-01-01", "2022-01-01"))) +
+  theme_bw() +
+  ggtitle("CNN News Average Sentiments per Week in 2021") +
+  ylim(-2,2)
+
+library(patchwork)
+
+abcplot = abc_1 %>% ggplot(mapping = aes(x = week, y = value_mean)) +
+  geom_point() +
+  geom_line(color = "darkblue") +
+  ylab(label = "Sentiment") +
+   scale_x_date(limits = as.Date(c("2021-01-01", "2022-01-01"))) +
+  theme_bw() +
+  ggtitle("ABC News Average Sentiments per Week in 2021") +
+  ylim(-2,2)
+
+abcplot + cnnplot + aus + usa
+```
+
